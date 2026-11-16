@@ -1,77 +1,145 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 
 import '../services/app_state.dart';
+import '../services/image_sources.dart';
 import '../theme/app_theme.dart';
+import '../widgets/download_dialog.dart';
 import '../widgets/source_icon.dart';
 import 'result_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.app});
   final AppState app;
 
-  /// PART 4 PLACEHOLDER: classifies the bundled sample image.
-  /// Part 5 replaces this with real camera / gallery / download bytes.
-  Future<void> _placeholder(BuildContext context, String source) async {
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _sources = ImageSources();
+  bool _busy = false;
+
+  /// THE shared path: bytes -> classify -> History -> Result.
+  /// Camera, gallery and download all go through this one method.
+  Future<void> _run(
+    Future<Uint8List?> Function() getBytes,
+    String source,
+  ) async {
+    if (_busy) return;
     try {
-      final data = await rootBundle.load('assets/model/sample.jpg');
-      final bytes =
-          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-      final entry = app.classify(bytes, source);
-      if (!context.mounted) return;
+      final bytes = await getBytes();
+      if (bytes == null) return; // the user cancelled: change nothing
+      if (!mounted) return;
+
+      // classify() runs on the UI thread and freezes the screen while the
+      // model works. Show the busy layer first and give Flutter a moment to
+      // paint it.
+      setState(() => _busy = true);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final entry = widget.app.classify(bytes, source);
+      if (!mounted) return;
       openResult(context, entry);
+    } on FormatException catch (e) {
+      _showError('Could not classify this file: ${e.message}');
     } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('$e')));
+      _showError('$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _download() async {
+    final bytes = await showDialog<Uint8List>(
+      context: context,
+      builder: (_) => DownloadDialog(sources: _sources),
+    );
+    if (bytes == null || !mounted) return; // cancelled
+    // The dialog only downloaded. Classifying uses the same shared path.
+    await _run(() async => bytes, 'Download');
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Home')),
       body: SafeArea(
-        child: ListenableBuilder(
-          listenable: app,
-          builder: (context, _) {
-            final latest = app.latest;
-            return ListView(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              children: [
-                _ActionCard(
-                  icon: Icons.photo_camera,
-                  title: 'Take a photo',
-                  subtitle: 'Use the phone camera',
-                  onTap: () => _placeholder(context, 'Camera'),
+        child: Stack(
+          children: [
+            ListenableBuilder(
+              listenable: widget.app,
+              builder: (context, _) {
+                final latest = widget.app.latest;
+                return ListView(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  children: [
+                    _ActionCard(
+                      icon: Icons.photo_camera,
+                      title: 'Take a photo',
+                      subtitle: 'Use the phone camera',
+                      onTap: () => _run(_sources.fromCamera, 'Camera'),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _ActionCard(
+                      icon: Icons.photo_library,
+                      title: 'Choose from gallery',
+                      subtitle: 'Pick a picture you already have',
+                      onTap: () => _run(_sources.fromGallery, 'Gallery'),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _ActionCard(
+                      icon: Icons.cloud_download,
+                      title: 'Download an image',
+                      subtitle: 'Classify a picture from a web address',
+                      onTap: _download,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text('Latest result', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: AppSpacing.sm),
+                    if (latest == null)
+                      Text('Nothing classified yet.',
+                          style: theme.textTheme.bodyMedium)
+                    else
+                      _LatestCard(entry: latest),
+                  ],
+                );
+              },
+            ),
+            if (_busy)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: scheme.scrim.withValues(alpha: 0.4),
+                  child: Center(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircularProgressIndicator(),
+                            const SizedBox(height: AppSpacing.md),
+                            Text('Classifying…',
+                                style: theme.textTheme.bodyMedium),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.md),
-                _ActionCard(
-                  icon: Icons.photo_library,
-                  title: 'Choose from gallery',
-                  subtitle: 'Pick a picture you already have',
-                  onTap: () => _placeholder(context, 'Gallery'),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _ActionCard(
-                  icon: Icons.cloud_download,
-                  title: 'Download an image',
-                  subtitle: 'Classify a picture from a web address',
-                  onTap: () => _placeholder(context, 'Download'),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text('Latest result', style: theme.textTheme.titleMedium),
-                const SizedBox(height: AppSpacing.sm),
-                if (latest == null)
-                  Text('Nothing classified yet.',
-                      style: theme.textTheme.bodyMedium)
-                else
-                  _LatestCard(entry: latest),
-              ],
-            );
-          },
+              ),
+          ],
         ),
       ),
     );

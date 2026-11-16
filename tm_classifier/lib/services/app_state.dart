@@ -28,13 +28,22 @@ class AppState extends ChangeNotifier {
   /// Newest first.
   final List<HistoryEntry> history = [];
 
+  /// How long the last classify() took, for the notes.
+  int lastClassifyMs = 0;
+
   HistoryEntry? get latest => history.isEmpty ? null : history.first;
 
-  /// bytes -> classify -> history. Every source will use this one method.
+  /// bytes -> classify -> history. Every source uses this one method.
   HistoryEntry classify(Uint8List bytes, String source) {
+    final sw = Stopwatch()..start();
+    final predictions = classifier.classify(bytes);
+    sw.stop();
+    lastClassifyMs = sw.elapsedMilliseconds;
+    debugPrint('classify($source) took $lastClassifyMs ms');
+
     final entry = HistoryEntry(
       bytes: bytes,
-      predictions: classifier.classify(bytes),
+      predictions: predictions,
       source: source,
       time: DateTime.now(),
     );

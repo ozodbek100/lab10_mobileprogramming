@@ -21,7 +21,6 @@ class AppRadius {
 const String? _fontFamily = null;
 
 ThemeData buildTheme() {
-  // TODO: replace with the primary colour from the Figma file.
   const seed = Color(0xFF0F8B7D);
 
   final scheme = ColorScheme.fromSeed(seedColor: seed);
@@ -31,7 +30,6 @@ ThemeData buildTheme() {
     fontFamily: _fontFamily,
   );
 
-  // TODO: replace sizes and weights with the Figma text styles.
   final t = base.textTheme;
   final textTheme = t.copyWith(
     headlineMedium:
