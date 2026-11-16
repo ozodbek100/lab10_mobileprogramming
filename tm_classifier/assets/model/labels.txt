@@ -1,0 +1,6 @@
+0 Phone
+1 Laptop
+2 Coffee Mug
+3 Pen
+4 Water Bottle
+5 Nothing
